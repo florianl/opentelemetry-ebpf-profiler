@@ -212,6 +212,7 @@ func mainWithExitCode() exitCode {
 		BPFVerifierLogLevel:    uint32(args.bpfVerifierLogLevel),
 		ProbabilisticInterval:  args.probabilisticInterval,
 		ProbabilisticThreshold: args.probabilisticThreshold,
+		OffCPUThreshold:        uint32(args.offCPUThreshold),
 	})
 	if err != nil {
 		return failure("Failed to load eBPF tracer: %v", err)
@@ -232,6 +233,13 @@ func mainWithExitCode() exitCode {
 		return failure("Failed to attach to perf event: %v", err)
 	}
 	log.Info("Attached tracer program")
+
+	if args.offCPUThreshold < tracer.OffCPUThresholdMax {
+		if err := trc.StartOffCPUProfiling(); err != nil {
+			return failure("Failed to start off-cpu profiling: %v", err)
+		}
+		log.Printf("Enabled off-cpu profiling")
+	}
 
 	if args.probabilisticThreshold < tracer.ProbabilisticThresholdMax {
 		trc.StartProbabilisticProfiling(mainCtx)
