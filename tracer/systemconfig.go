@@ -260,7 +260,7 @@ func determineStackLayout(coll *cebpf.CollectionSpec, maps map[string]*cebpf.Map
 }
 
 // prepareAnalysis creates a new CollectionSpec for the system analysis.
-func prepareAnalysis(orig *cebpf.CollectionSpec) (*cebpf.CollectionSpec, map[string]*cebpf.Map, error) {
+func prepareAnalysis(orig *cebpf.CollectionSpec, cfg *Config) (*cebpf.CollectionSpec, map[string]*cebpf.Map, error) {
 	new := &cebpf.CollectionSpec{
 		Maps:     make(map[string]*cebpf.MapSpec),
 		Programs: make(map[string]*cebpf.ProgramSpec),
@@ -276,7 +276,7 @@ func prepareAnalysis(orig *cebpf.CollectionSpec) (*cebpf.CollectionSpec, map[str
 
 	maps := make(map[string]*cebpf.Map)
 
-	if err := loadAllMaps(new, &Config{InterpretersConfig: interpreter.AllInterpretersConfig()}, maps); err != nil {
+	if err := loadAllMaps(new, cfg, maps); err != nil {
 		return nil, nil, err
 	}
 
@@ -288,7 +288,7 @@ func prepareAnalysis(orig *cebpf.CollectionSpec) (*cebpf.CollectionSpec, map[str
 }
 
 func determineSysConfig(coll *cebpf.CollectionSpec, maps map[string]*cebpf.Map,
-	kmod *kallsyms.Module, interpretersConfig interpreter.InterpretersConfig, vars *sysConfigVars,
+	kmod *kallsyms.Module, interpretersConfig map[interpreter.ID]interpreter.Config, vars *sysConfigVars,
 ) error {
 	if err := parseBTF(vars); err != nil {
 		log.Infof("Using binary analysis (BTF not available: %s)", err)
@@ -297,8 +297,9 @@ func determineSysConfig(coll *cebpf.CollectionSpec, maps map[string]*cebpf.Map,
 			return err
 		}
 
-		if !interpretersConfig.Perl.IsDisabled() || !interpretersConfig.Python.IsDisabled() ||
-			!interpretersConfig.Labels.IsDisabled() {
+		if interpreter.Has(interpretersConfig, interpreter.PerlID) ||
+			interpreter.Has(interpretersConfig, interpreter.PythonID) ||
+			interpreter.Has(interpretersConfig, interpreter.LabelsID) {
 			var tpbaseOffset uint64
 			tpbaseOffset, err = loadTPBaseOffset(coll, maps, kmod)
 			if err != nil {
@@ -356,12 +357,12 @@ func loadRodataVars(coll *cebpf.CollectionSpec, kmod *kallsyms.Module, cfg *Conf
 
 	rodataVars := sysConfigVars{}
 
-	systemAnalysisColl, maps, err := prepareAnalysis(coll)
+	systemAnalysisColl, maps, err := prepareAnalysis(coll, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to prepare programs and maps for system analysis: %v", err)
 	}
 
-	if err := determineSysConfig(systemAnalysisColl, maps, kmod, cfg.InterpretersConfig, &rodataVars); err != nil {
+	if err := determineSysConfig(systemAnalysisColl, maps, kmod, cfg.Interpreters, &rodataVars); err != nil {
 		return fmt.Errorf("failed to determine system configs: %v", err)
 	}
 	if err := coll.Variables["tpbase_offset"].Set(rodataVars.tpbase_offset); err != nil {

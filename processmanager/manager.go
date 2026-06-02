@@ -60,7 +60,7 @@ var (
 
 // New creates a new ProcessManager which is responsible for keeping track of loading
 // and unloading of symbols for processes.
-func New(ctx context.Context, interpretersConfig interpreter.InterpretersConfig, monitorInterval time.Duration,
+func New(ctx context.Context, interpretersConfig map[interpreter.ID]interpreter.Config, monitorInterval time.Duration,
 	executableUnloadDelay time.Duration, ebpf pmebpf.EbpfHandler, traceReporter reporter.TraceReporter,
 	exeReporter reporter.ExecutableReporter, sdp nativeunwind.StackDeltaProvider,
 	filterErrorFrames bool, includeEnvVars libpf.Set[string]) (*ProcessManager, error) {

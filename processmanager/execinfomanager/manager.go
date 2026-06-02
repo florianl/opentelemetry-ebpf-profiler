@@ -92,42 +92,42 @@ type ExecutableInfoManager struct {
 func NewExecutableInfoManager(
 	sdp nativeunwind.StackDeltaProvider,
 	ebpf pmebpf.EbpfHandler,
-	interpretersConfig interpreter.InterpretersConfig,
+	interpretersConfig map[interpreter.ID]interpreter.Config,
 ) (*ExecutableInfoManager, error) {
 	// Initialize interpreter loaders.
 	loaders := make([]interpreter.Loader, 0)
-	if !interpretersConfig.Perl.IsDisabled() {
-		loaders = append(loaders, perl.GetLoader(interpretersConfig.Perl))
+	if interpreter.Has(interpretersConfig, interpreter.PerlID) {
+		loaders = append(loaders, perl.GetLoader(perl.Config{}))
 	}
-	if !interpretersConfig.Python.IsDisabled() {
-		loaders = append(loaders, python.GetLoader(interpretersConfig.Python))
+	if interpreter.Has(interpretersConfig, interpreter.PythonID) {
+		loaders = append(loaders, python.GetLoader(python.Config{}))
 	}
-	if !interpretersConfig.PHP.IsDisabled() {
-		loaders = append(loaders, php.GetLoader(interpretersConfig.PHP))
-		loaders = append(loaders, php.GetOpcacheLoader(interpretersConfig.PHP))
+	if interpreter.Has(interpretersConfig, interpreter.PHPID) {
+		loaders = append(loaders, php.GetLoader(php.Config{}))
+		loaders = append(loaders, php.GetOpcacheLoader(php.Config{}))
 	}
-	if !interpretersConfig.Hotspot.IsDisabled() {
-		loaders = append(loaders, hotspot.GetLoader(interpretersConfig.Hotspot))
+	if interpreter.Has(interpretersConfig, interpreter.HotspotID) {
+		loaders = append(loaders, hotspot.GetLoader(hotspot.Config{}))
 	}
-	if !interpretersConfig.Ruby.IsDisabled() {
-		loaders = append(loaders, ruby.GetLoader(interpretersConfig.Ruby))
+	if interpreter.Has(interpretersConfig, interpreter.RubyID) {
+		loaders = append(loaders, ruby.GetLoader(ruby.Config{}))
 	}
-	if !interpretersConfig.V8.IsDisabled() {
-		loaders = append(loaders, nodev8.GetLoader(interpretersConfig.V8))
+	if interpreter.Has(interpretersConfig, interpreter.V8ID) {
+		loaders = append(loaders, nodev8.GetLoader(nodev8.Config{}))
 	}
-	if !interpretersConfig.Dotnet.IsDisabled() {
-		loaders = append(loaders, dotnet.GetLoader(interpretersConfig.Dotnet))
+	if interpreter.Has(interpretersConfig, interpreter.DotnetID) {
+		loaders = append(loaders, dotnet.GetLoader(dotnet.Config{}))
 	}
-	if !interpretersConfig.Go.IsDisabled() {
-		loaders = append(loaders, golang.GetLoader(interpretersConfig.Go))
+	if interpreter.Has(interpretersConfig, interpreter.GoID) {
+		loaders = append(loaders, golang.GetLoader(golang.Config{}))
 	}
-	if !interpretersConfig.BEAM.IsDisabled() {
-		loaders = append(loaders, beam.GetLoader(interpretersConfig.BEAM))
+	if interpreter.Has(interpretersConfig, interpreter.BEAMID) {
+		loaders = append(loaders, beam.GetLoader(beam.Config{}))
 	}
 
 	loaders = append(loaders, apmint.Loader)
-	if !interpretersConfig.Labels.IsDisabled() {
-		loaders = append(loaders, golabels.GetLoader(interpretersConfig.Labels))
+	if interpreter.Has(interpretersConfig, interpreter.LabelsID) {
+		loaders = append(loaders, golabels.GetLoader(golabels.Config{}))
 	}
 
 	deferredFileIDs, err := lru.NewSynced[host.FileID, libpf.Void](deferredFileIDSize,

@@ -81,7 +81,7 @@ var _ ebpfapi.EbpfHandler = &ebpfMapsImpl{}
 //
 // It further spawns background workers for deferred map updates; the given
 // context can be used to terminate them on shutdown.
-func LoadMaps(ctx context.Context, interpretersConfig interpreter.InterpretersConfig,
+func LoadMaps(ctx context.Context, interpretersConfig map[interpreter.ID]interpreter.Config,
 	maps map[string]*cebpf.Map, stackdeltaInnerMapSpec *cebpf.MapSpec) (ebpfapi.EbpfHandler, error) {
 	impl := &ebpfMapsImpl{
 		stackdeltaInnerMapTemplate: stackdeltaInnerMapSpec,

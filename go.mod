@@ -38,6 +38,8 @@ require (
 	go.opentelemetry.io/collector/receiver/xreceiver v0.153.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/metric v1.44.0
+	go.opentelemetry.io/otel/sdk/metric v1.43.0
+	go.opentelemetry.io/otel/trace v1.44.0
 	go.opentelemetry.io/proto/otlp v1.10.0
 	go.opentelemetry.io/proto/otlp/profiles/v1development v0.3.0
 	go.uber.org/goleak v1.3.0
@@ -96,8 +98,6 @@ require (
 	go.opentelemetry.io/collector/internal/componentalias v0.153.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.59.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
-	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
-	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect

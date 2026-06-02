@@ -3,105 +3,39 @@
 
 package interpreter // import "go.opentelemetry.io/ebpf-profiler/interpreter"
 
-// BaseConfig holds the fields required by every extension config.
-// Embed it in each extension-specific Config to satisfy the Config interface.
-type BaseConfig struct {
-	Disabled bool `mapstructure:"disabled"`
+// Config defines the configuration for an interpreter.
+type Config any
+
+// Has returns true if the interpreter with the given ID is present in the map.
+func Has(m map[ID]Config, id ID) bool {
+	_, ok := m[id]
+	return ok
 }
 
-func (b BaseConfig) IsDisabled() bool { return b.Disabled }
-
-// Config is the interface every extension-specific config must satisfy.
-// It is satisfied automatically by embedding BaseConfig.
-type Config interface {
-	IsDisabled() bool
-}
-
-// Per-extension config types. Each embeds BaseConfig (squashed so mapstructure
-// sees Disabled at the same level) and can add extension-specific fields later.
-type PythonConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type PerlConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type PHPConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type HotspotConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type RubyConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type V8Config struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type DotnetConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type GoConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type LabelsConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-type BEAMConfig struct {
-	BaseConfig `mapstructure:",squash"`
-}
-
-// InterpretersConfig holds configuration for all interpreters.
-// By default all interpreters are enabled.
-type InterpretersConfig struct {
-	Python  PythonConfig  `mapstructure:"python"`
-	Perl    PerlConfig    `mapstructure:"perl"`
-	PHP     PHPConfig     `mapstructure:"php"`
-	Hotspot HotspotConfig `mapstructure:"hotspot"`
-	Ruby    RubyConfig    `mapstructure:"ruby"`
-	V8      V8Config      `mapstructure:"v8"`
-	Dotnet  DotnetConfig  `mapstructure:"dotnet"`
-	Go      GoConfig      `mapstructure:"go"`
-	Labels  LabelsConfig  `mapstructure:"labels"`
-	BEAM    BEAMConfig    `mapstructure:"beam"`
-}
-
-// AllInterpretersConfig returns a InterpretersConfig with all interpreters enabled.
-func AllInterpretersConfig() InterpretersConfig { return InterpretersConfig{} }
-
-// IsMapEnabled returns true if for the given mapName the respective
-// configuration is enabled.
-func IsMapEnabled(mapName string, cfg InterpretersConfig) bool {
+// IsMapEnabled checks if the given eBPF map should be loaded based on the
+// interpreters configuration. The map names used here are the eBPF map names
+// (e.g. "py_procs"), which are distinct from the interpreter IDs (e.g. "python").
+func IsMapEnabled(mapName string, cfg map[ID]Config) bool {
 	switch mapName {
-	case "perl_procs":
-		return !cfg.Perl.IsDisabled()
-	case "php_procs":
-		return !cfg.PHP.IsDisabled()
 	case "py_procs":
-		return !cfg.Python.IsDisabled()
+		return Has(cfg, PythonID)
+	case "php_procs":
+		return Has(cfg, PHPID)
 	case "hotspot_procs":
-		return !cfg.Hotspot.IsDisabled()
+		return Has(cfg, HotspotID)
 	case "ruby_procs":
-		return !cfg.Ruby.IsDisabled()
+		return Has(cfg, RubyID)
 	case "v8_procs":
-		return !cfg.V8.IsDisabled()
+		return Has(cfg, V8ID)
 	case "dotnet_procs":
-		return !cfg.Dotnet.IsDisabled()
+		return Has(cfg, DotnetID)
 	case "beam_procs":
-		return !cfg.BEAM.IsDisabled()
-	case "go_labels_procs", "apm_int_procs":
-		// go_labels_procs and apm_int_procs are called from
-		// unwind_stop and therefore need to be available all the time.
-		return true
+		return Has(cfg, BEAMID)
+	case "perl_procs":
+		return Has(cfg, PerlID)
 	default:
-		return true // Not an interpreter map, so it should be loaded
+		// Core maps and always-on interpreter maps (go_labels_procs, apm_int_procs)
+		// are always loaded.
+		return true
 	}
 }

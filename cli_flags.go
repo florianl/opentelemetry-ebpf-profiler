@@ -12,7 +12,7 @@ import (
 
 	"github.com/peterbourgon/ff/v3"
 
-	"go.opentelemetry.io/ebpf-profiler/collector/config"
+	collectorconfig "go.opentelemetry.io/ebpf-profiler/collector/config"
 	"go.opentelemetry.io/ebpf-profiler/internal/controller"
 	"go.opentelemetry.io/ebpf-profiler/internal/log"
 	"go.opentelemetry.io/ebpf-profiler/interpreter"
@@ -48,7 +48,7 @@ var (
 	mapScaleFactorHelp = fmt.Sprintf("Scaling factor for eBPF map sizes. "+
 		"Every increase by 1 doubles the map size. Increase if you see eBPF map size errors. "+
 		"Default is %d corresponding to 4GB of executable address space, max is %d.",
-		defaultArgMapScaleFactor, config.MaxArgMapScaleFactor)
+		defaultArgMapScaleFactor, collectorconfig.MaxArgMapScaleFactor)
 	disableTLSHelp             = "Disable encryption for data in transit."
 	bpfVerifierLogLevelHelp    = "Log level of the eBPF verifier output (0,1,2). Default is 0."
 	versionHelp                = "Show version."
@@ -166,7 +166,7 @@ func parseArgs() (*controller.Config, error) {
 
 	args.Fs = fs
 
-	args.ErrorMode = config.PropagateError
+	args.ErrorMode = collectorconfig.PropagateError
 
 	if err := ff.Parse(fs, os.Args[1:],
 		ff.WithEnvVarPrefix("OTEL_PROFILING_AGENT"),
@@ -189,60 +189,32 @@ func parseArgs() (*controller.Config, error) {
 	return &args, nil
 }
 
-// parseTracers parses the comma-separated tracers string and returns an
-// InterpretersConfig with only the listed interpreters enabled.
-// "all" enables every interpreter.
-// Unknown names return an error.
-func parseTracers(tracers string) (interpreter.InterpretersConfig, error) {
+// parseTracers parses the comma-separated tracers string and returns a map with only the
+// listed interpreters enabled. "all" enables every interpreter. Unknown names return an error.
+func parseTracers(tracers string) (map[interpreter.ID]interpreter.Config, error) {
 	for name := range strings.SplitSeq(tracers, ",") {
 		if strings.ToLower(strings.TrimSpace(name)) == "all" {
-			return interpreter.AllInterpretersConfig(), nil
+			return collectorconfig.AllInterpretersConfig(), nil
 		}
 	}
 
-	// Start with all interpreters disabled; enable only the ones listed.
-	cfg := interpreter.InterpretersConfig{
-		Python:  interpreter.PythonConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		Perl:    interpreter.PerlConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		PHP:     interpreter.PHPConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		Hotspot: interpreter.HotspotConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		Ruby:    interpreter.RubyConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		V8:      interpreter.V8Config{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		Dotnet:  interpreter.DotnetConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		Go:      interpreter.GoConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		Labels:  interpreter.LabelsConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-		BEAM:    interpreter.BEAMConfig{BaseConfig: interpreter.BaseConfig{Disabled: true}},
-	}
+	// Start empty; enable only the interpreters listed.
+	cfg := make(map[interpreter.ID]interpreter.Config)
 
 	for name := range strings.SplitSeq(tracers, ",") {
 		name = strings.ToLower(strings.TrimSpace(name))
 		switch name {
-		case "python":
-			cfg.Python.Disabled = false
-		case "perl":
-			cfg.Perl.Disabled = false
-		case "php":
-			cfg.PHP.Disabled = false
-		case "hotspot":
-			cfg.Hotspot.Disabled = false
-		case "ruby":
-			cfg.Ruby.Disabled = false
-		case "v8":
-			cfg.V8.Disabled = false
-		case "dotnet":
-			cfg.Dotnet.Disabled = false
-		case "go":
-			cfg.Go.Disabled = false
-		case "labels":
-			cfg.Labels.Disabled = false
-		case "beam":
-			cfg.BEAM.Disabled = false
 		case "native":
 			log.Warn("Enabling the `native` tracer explicitly is deprecated (it's always-on)")
 		case "":
 			// ignore empty segments
 		default:
-			return interpreter.InterpretersConfig{}, fmt.Errorf("unknown tracer: %s", name)
+			id := interpreter.ID(name)
+			icfg, ok := collectorconfig.NewInterpreterConfig(id)
+			if !ok {
+				return nil, fmt.Errorf("unknown tracer: %s", name)
+			}
+			cfg[id] = icfg
 		}
 	}
 

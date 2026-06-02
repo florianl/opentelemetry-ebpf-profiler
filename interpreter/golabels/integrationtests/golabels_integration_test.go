@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/ebpf-profiler/internal/log"
-	"go.opentelemetry.io/ebpf-profiler/interpreter"
+	collectorconfig "go.opentelemetry.io/ebpf-profiler/collector/config"
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/metrics"
 	"go.opentelemetry.io/ebpf-profiler/tracer"
@@ -98,7 +98,7 @@ func Test_Golabels(t *testing.T) {
 			log.SetLevel(slog.LevelDebug)
 			trc, err := tracer.NewTracer(ctx, &tracer.Config{
 				Intervals:              &mockIntervals{},
-				InterpretersConfig:     interpreter.AllInterpretersConfig(),
+				Interpreters:           collectorconfig.AllInterpretersConfig(),
 				SamplesPerSecond:       20,
 				ProbabilisticInterval:  100,
 				ProbabilisticThreshold: 100,

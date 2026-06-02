@@ -159,8 +159,8 @@ type Config struct {
 	TraceReporter reporter.TraceReporter
 	// Intervals provides access to globally configured timers and counters.
 	Intervals Intervals
-	// InterpretersConfig holds per-interpreter configuration.
-	InterpretersConfig interpreter.InterpretersConfig
+	// Interpreters holds per-interpreter configuration.
+	Interpreters map[interpreter.ID]interpreter.Config
 	// SamplesPerSecond holds the number of samples per second.
 	SamplesPerSecond int
 	// MapScaleFactor is the scaling factor for eBPF map sizes.
@@ -258,12 +258,12 @@ func NewTracer(ctx context.Context, cfg *Config) (*Tracer, error) {
 		return nil, fmt.Errorf("failed to load eBPF code: %v", err)
 	}
 
-	ebpfHandler, err := pmebpf.LoadMaps(ctx, cfg.InterpretersConfig, ebpfMaps, stackdeltaInnerMapSpec)
+	ebpfHandler, err := pmebpf.LoadMaps(ctx, cfg.Interpreters, ebpfMaps, stackdeltaInnerMapSpec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load eBPF maps: %v", err)
 	}
 
-	processManager, err := pm.New(ctx, cfg.InterpretersConfig, cfg.Intervals.MonitorInterval(),
+	processManager, err := pm.New(ctx, cfg.Interpreters, cfg.Intervals.MonitorInterval(),
 		cfg.Intervals.ExecutableUnloadDelay(), ebpfHandler, cfg.TraceReporter, cfg.ExecutableReporter,
 		elfunwindinfo.NewStackDeltaProvider(),
 		cfg.FilterErrorFrames, cfg.IncludeEnvVars)
@@ -403,52 +403,52 @@ func initializeMapsAndPrograms(kmod *kallsyms.Module, cfg *Config) (
 		{
 			progID: uint32(support.ProgUnwindHotspot),
 			name:   "unwind_hotspot",
-			enable: !cfg.InterpretersConfig.Hotspot.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.HotspotID),
 		},
 		{
 			progID: uint32(support.ProgUnwindPerl),
 			name:   "unwind_perl",
-			enable: !cfg.InterpretersConfig.Perl.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.PerlID),
 		},
 		{
 			progID: uint32(support.ProgUnwindPHP),
 			name:   "unwind_php",
-			enable: !cfg.InterpretersConfig.PHP.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.PHPID),
 		},
 		{
 			progID: uint32(support.ProgUnwindPython),
 			name:   "unwind_python",
-			enable: !cfg.InterpretersConfig.Python.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.PythonID),
 		},
 		{
 			progID: uint32(support.ProgUnwindRuby),
 			name:   "unwind_ruby",
-			enable: !cfg.InterpretersConfig.Ruby.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.RubyID),
 		},
 		{
 			progID: uint32(support.ProgUnwindV8),
 			name:   "unwind_v8",
-			enable: !cfg.InterpretersConfig.V8.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.V8ID),
 		},
 		{
 			progID: uint32(support.ProgUnwindDotnet),
 			name:   "unwind_dotnet",
-			enable: !cfg.InterpretersConfig.Dotnet.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.DotnetID),
 		},
 		{
 			progID: uint32(support.ProgUnwindDotnet10),
 			name:   "unwind_dotnet10",
-			enable: !cfg.InterpretersConfig.Dotnet.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.DotnetID),
 		},
 		{
 			progID: uint32(support.ProgGoLabels),
 			name:   "go_labels",
-			enable: !cfg.InterpretersConfig.Labels.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.LabelsID),
 		},
 		{
 			progID: uint32(support.ProgUnwindBEAM),
 			name:   "unwind_beam",
-			enable: !cfg.InterpretersConfig.BEAM.IsDisabled(),
+			enable: interpreter.Has(cfg.Interpreters, interpreter.BEAMID),
 		},
 	}
 
@@ -658,7 +658,7 @@ func loadAllMaps(coll *cebpf.CollectionSpec, cfg *Config,
 			}
 		}
 
-		if !interpreter.IsMapEnabled(mapName, cfg.InterpretersConfig) {
+		if !interpreter.IsMapEnabled(mapName, cfg.Interpreters) {
 			log.Debugf("Skipping eBPF map %s: tracer not enabled", mapName)
 			continue
 		}
