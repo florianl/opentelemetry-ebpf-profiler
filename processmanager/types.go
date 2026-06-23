@@ -6,6 +6,7 @@ package processmanager // import "go.opentelemetry.io/ebpf-profiler/processmanag
 import (
 	"sync"
 	"sync/atomic"
+	"unique"
 
 	lru "github.com/elastic/go-freelru"
 
@@ -13,11 +14,13 @@ import (
 	"go.opentelemetry.io/ebpf-profiler/libc"
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/libpf/pfelf"
+	"go.opentelemetry.io/ebpf-profiler/libpf/xsync"
 	"go.opentelemetry.io/ebpf-profiler/metrics"
 	"go.opentelemetry.io/ebpf-profiler/process"
 	pmebpf "go.opentelemetry.io/ebpf-profiler/processmanager/ebpfapi"
 	eim "go.opentelemetry.io/ebpf-profiler/processmanager/execinfomanager"
 	"go.opentelemetry.io/ebpf-profiler/reporter"
+	"go.opentelemetry.io/ebpf-profiler/reporter/samples"
 	"go.opentelemetry.io/ebpf-profiler/times"
 	"go.opentelemetry.io/ebpf-profiler/util"
 )
@@ -123,6 +126,8 @@ type ProcessManager struct {
 	// Used as a fallback when /proc/<pid>/cgroup yields no container ID for processes
 	// that share the profiler's cgroup directory (e.g., private cgroup namespace).
 	selfContainerID libpf.String
+
+	profileTypeRegistar *xsync.RWMutex[map[libpf.Origin]unique.Handle[samples.ProfileTypeMetadata]]
 }
 
 // Mapping represents an executable memory mapping of a process.

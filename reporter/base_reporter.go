@@ -4,7 +4,6 @@
 package reporter // import "go.opentelemetry.io/ebpf-profiler/reporter"
 
 import (
-	"errors"
 	"time"
 	"unique"
 
@@ -41,23 +40,8 @@ type baseReporter struct {
 	collectionStartTime time.Time
 }
 
-var (
-	ErrUnknownOrigin       = errors.New("unknown trace origin")
-	ErrOriginAlreadyExists = errors.New("profile origin already registered")
-)
-
 func (b *baseReporter) Stop() {
 	b.runLoop.Stop()
-}
-
-// RegisterProfileType registers a profiling origin and its associated metadata
-// with the reporter. It must be called for each origin before the first
-// ReportTraceEvent call for that origin.
-//
-// Returns ErrOriginAlreadyExists if the origin was already registered.
-// Returns an error if meta is inconsistent.
-func (b *baseReporter) RegisterProfileType(origin libpf.Origin, meta samples.ProfileTypeMetadata) error {
-	return nil
 }
 
 // generate creates an OTLP Profiles payload from the given trace events tree.

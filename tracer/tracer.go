@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unique"
 	"unsafe"
 
 	cebpf "github.com/cilium/ebpf"
@@ -37,6 +38,7 @@ import (
 	pm "go.opentelemetry.io/ebpf-profiler/processmanager"
 	pmebpf "go.opentelemetry.io/ebpf-profiler/processmanager/ebpf"
 	"go.opentelemetry.io/ebpf-profiler/reporter"
+	"go.opentelemetry.io/ebpf-profiler/reporter/samples"
 	reportersamples "go.opentelemetry.io/ebpf-profiler/reporter/samples"
 	"go.opentelemetry.io/ebpf-profiler/rlimit"
 	"go.opentelemetry.io/ebpf-profiler/support"
@@ -132,9 +134,9 @@ type Tracer struct {
 	// probabilisticThreshold holds the threshold for probabilistic profiling.
 	probabilisticThreshold uint
 
-	// profileTypeRegistrar is used to register profiling types with the reporter
-	// when each profiling mode is enabled.
-	profileTypeRegistrar reporter.ProfileTypeRegistrar
+	// profileTypeRegistrar is used to register profiling types for trace
+	// data
+	profileTypeRegistrar *xsync.RWMutex[map[libpf.Origin]unique.Handle[samples.ProfileTypeMetadata]]
 
 	// customLabels validates custom label keys/values pulled from eBPF and
 	// tracks how many were dropped due to invalid UTF-8.
@@ -269,10 +271,12 @@ func NewTracer(ctx context.Context, cfg *Config) (*Tracer, error) {
 		return nil, fmt.Errorf("failed to load eBPF maps: %v", err)
 	}
 
+	profileTypeRegistar := xsync.NewRWMutex(make(map[libpf.Origin]unique.Handle[samples.ProfileTypeMetadata]))
+
 	processManager, err := pm.New(ctx, cfg.IncludeTracers, cfg.Intervals.MonitorInterval(),
 		cfg.Intervals.ExecutableUnloadDelay(), ebpfHandler, cfg.TraceReporter, cfg.ExecutableReporter,
 		elfunwindinfo.NewStackDeltaProvider(),
-		cfg.FilterErrorFrames, cfg.IncludeEnvVars)
+		cfg.FilterErrorFrames, cfg.IncludeEnvVars, &profileTypeRegistar)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create processManager: %v", err)
 	}
@@ -282,7 +286,7 @@ func NewTracer(ctx context.Context, cfg *Config) (*Tracer, error) {
 	tracer := &Tracer{
 		kernelSymbolizer:       kernelSymbolizer,
 		processManager:         processManager,
-		profileTypeRegistrar:   cfg.TraceReporter,
+		profileTypeRegistrar:   &profileTypeRegistar,
 		triggerPIDProcessing:   make(chan bool, 1),
 		tracePool:              newTracePool(),
 		pidEvents:              make(chan libpf.PIDTID, pidEventBufferSize),
@@ -299,18 +303,15 @@ func NewTracer(ctx context.Context, cfg *Config) (*Tracer, error) {
 
 	// Register CPU sampling as a profiling type. Sampling is always enabled,
 	// so the reporter must know about it.
-	if err := cfg.TraceReporter.RegisterProfileType(
-		support.TraceOriginSampling,
-		reportersamples.ProfileTypeMetadata{
-			Period:     int64(time.Second) / int64(cfg.SamplesPerSecond),
-			PeriodType: "cpu",
-			PeriodUnit: "nanoseconds",
-			SampleType: "samples",
-			SampleUnit: "count",
-		},
-	); err != nil {
-		return nil, fmt.Errorf("failed to register sampling profile type: %w", err)
-	}
+	registarPtr := tracer.profileTypeRegistrar.WLock()
+	(*registarPtr)[support.TraceOriginSampling] = unique.Make(reportersamples.ProfileTypeMetadata{
+		Period:     int64(time.Second) / int64(cfg.SamplesPerSecond),
+		PeriodType: "cpu",
+		PeriodUnit: "nanoseconds",
+		SampleType: "samples",
+		SampleUnit: "count",
+	})
+	tracer.profileTypeRegistrar.WUnlock(&registarPtr)
 
 	return tracer, nil
 }
@@ -1296,16 +1297,13 @@ func (t *Tracer) StartProbabilisticProfiling(ctx context.Context) {
 
 // StartOffCPUProfiling starts off-cpu profiling by attaching the programs to the hooks.
 func (t *Tracer) StartOffCPUProfiling() error {
-	if err := t.profileTypeRegistrar.RegisterProfileType(
-		support.TraceOriginOffCPU,
-		reportersamples.ProfileTypeMetadata{
-			SampleType:   "off_cpu",
-			SampleUnit:   "nanoseconds",
-			ReportValues: true,
-		},
-	); err != nil {
-		return fmt.Errorf("failed to register off-CPU profile type: %w", err)
-	}
+	registarPtr := t.profileTypeRegistrar.WLock()
+	(*registarPtr)[support.TraceOriginOffCPU] = unique.Make(reportersamples.ProfileTypeMetadata{
+		SampleType:   "off_cpu",
+		SampleUnit:   "nanoseconds",
+		ReportValues: true,
+	})
+	t.profileTypeRegistrar.WUnlock(&registarPtr)
 
 	// Attach the second hook for off-cpu profiling first.
 	kprobeProg, ok := t.ebpfProgs["finish_task_switch"]
@@ -1356,15 +1354,12 @@ func (t *Tracer) StartOffCPUProfiling() error {
 
 func (t *Tracer) AttachProbes(probes []string) error {
 	if len(probes) > 0 {
-		if err := t.profileTypeRegistrar.RegisterProfileType(
-			support.TraceOriginProbe,
-			reportersamples.ProfileTypeMetadata{
-				SampleType: "events",
-				SampleUnit: "count",
-			},
-		); err != nil {
-			return fmt.Errorf("failed to register probe profile type: %w", err)
-		}
+		registarPtr := t.profileTypeRegistrar.WLock()
+		(*registarPtr)[support.TraceOriginProbe] = unique.Make(reportersamples.ProfileTypeMetadata{
+			SampleType: "events",
+			SampleUnit: "count",
+		})
+		t.profileTypeRegistrar.WUnlock(&registarPtr)
 	}
 
 	for _, probeStr := range probes {

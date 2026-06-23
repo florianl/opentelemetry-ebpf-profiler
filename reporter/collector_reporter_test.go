@@ -18,7 +18,6 @@ import (
 
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/reporter/samples"
-	"go.opentelemetry.io/ebpf-profiler/support"
 )
 
 func TestCollectorReporterReportTraceEvent(t *testing.T) {
@@ -61,8 +60,7 @@ func TestCollectorReporterReportTraceEvent(t *testing.T) {
 
 			r, err := NewCollector(&Config{}, next)
 			require.NoError(t, err)
-			if err := r.ReportTraceEvent(tt.trace, tt.meta); err != nil &&
-				!errors.Is(err, ErrUnknownOrigin) {
+			if err := r.ReportTraceEvent(tt.trace, tt.meta); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -86,13 +84,6 @@ func TestCollectorReporterShutdown(t *testing.T) {
 		ReportInterval: 10 * time.Millisecond,
 	}, next)
 	require.NoError(t, err)
-
-	// Register the probe profile type so the reporter knows to export
-	// TraceOriginProbe samples.
-	require.NoError(t, r.RegisterProfileType(support.TraceOriginProbe, samples.ProfileTypeMetadata{
-		SampleType: "events",
-		SampleUnit: "count",
-	}))
 
 	traceEventsPtr := r.traceEvents.WLock()
 	tree := (*traceEventsPtr)

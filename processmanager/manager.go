@@ -15,7 +15,6 @@ import (
 
 	lru "github.com/elastic/go-freelru"
 	"go.opentelemetry.io/ebpf-profiler/internal/log"
-	"go.opentelemetry.io/ebpf-profiler/support"
 
 	"go.opentelemetry.io/ebpf-profiler/host"
 	"go.opentelemetry.io/ebpf-profiler/interpreter"
@@ -23,6 +22,7 @@ import (
 	"go.opentelemetry.io/ebpf-profiler/interpreter/dotnet"
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/libpf/pfunsafe"
+	"go.opentelemetry.io/ebpf-profiler/libpf/xsync"
 	"go.opentelemetry.io/ebpf-profiler/lpm"
 	"go.opentelemetry.io/ebpf-profiler/metrics"
 	"go.opentelemetry.io/ebpf-profiler/nativeunwind"
@@ -61,25 +61,12 @@ var (
 	errPIDGone = errors.New("interpreter process gone")
 )
 
-var (
-	samplingProfileType = unique.Make(samples.ProfileTypeMetadata{
-		PeriodType: "cpu", PeriodUnit: "nanoseconds",
-		SampleType: "samples", SampleUnit: "count",
-	})
-	offCPUProfileType = unique.Make(samples.ProfileTypeMetadata{
-		SampleType: "off_cpu", SampleUnit: "nanoseconds", ReportValues: true,
-	})
-	probeProfileType = unique.Make(samples.ProfileTypeMetadata{
-		SampleType: "events", SampleUnit: "count",
-	})
-)
-
 // New creates a new ProcessManager which is responsible for keeping track of loading
 // and unloading of symbols for processes.
 func New(ctx context.Context, includeTracers types.IncludedTracers, monitorInterval time.Duration,
 	executableUnloadDelay time.Duration, ebpf pmebpf.EbpfHandler, traceReporter reporter.TraceReporter,
 	exeReporter reporter.ExecutableReporter, sdp nativeunwind.StackDeltaProvider,
-	filterErrorFrames bool, includeEnvVars libpf.Set[string]) (*ProcessManager, error) {
+	filterErrorFrames bool, includeEnvVars libpf.Set[string], profileTypeRegistar *xsync.RWMutex[map[libpf.Origin]unique.Handle[samples.ProfileTypeMetadata]]) (*ProcessManager, error) {
 	if exeReporter == nil {
 		exeReporter = executableReporterStub{}
 	}
@@ -132,6 +119,7 @@ func New(ctx context.Context, includeTracers types.IncludedTracers, monitorInter
 		includeEnvVars:           includeEnvVars,
 		selfCgroupIno:            selfCgroupIno,
 		selfContainerID:          selfContainerID,
+		profileTypeRegistar:      profileTypeRegistar,
 	}
 
 	collectInterpreterMetrics(ctx, pm, monitorInterval)
@@ -351,15 +339,15 @@ func (pm *ProcessManager) HandleTrace(bpfTrace *libpf.EbpfTrace) {
 		SpanID:         bpfTrace.APMTransactionID,
 	}
 
-	switch bpfTrace.Origin {
-	case support.TraceOriginSampling:
-		meta.ProfileType = samplingProfileType
-	case support.TraceOriginOffCPU:
-		meta.ProfileType = offCPUProfileType
-	case support.TraceOriginProbe:
-		meta.ProfileType = probeProfileType
-	default:
+	profileTypesPtr := pm.profileTypeRegistar.RLock()
+	if profileType, ok := (*profileTypesPtr)[bpfTrace.Origin]; ok {
+		meta.ProfileType = profileType
+	} else {
+		// TODO: Handle unknwon Origin
+		pm.profileTypeRegistar.RUnlock(&profileTypesPtr)
+		return
 	}
+	pm.profileTypeRegistar.RUnlock(&profileTypesPtr)
 
 	pid := bpfTrace.PID
 	kernelFramesLen := len(bpfTrace.KernelFrames)
