@@ -6,6 +6,7 @@ package reporter
 import (
 	"testing"
 	"time"
+	"unique"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,7 +15,6 @@ import (
 	"go.opentelemetry.io/ebpf-profiler/libpf/xsync"
 	"go.opentelemetry.io/ebpf-profiler/reporter/internal/pdata"
 	"go.opentelemetry.io/ebpf-profiler/reporter/samples"
-	"go.opentelemetry.io/ebpf-profiler/support"
 )
 
 // createTestBaseReporter creates a minimal baseReporter for testing purposes
@@ -38,7 +38,6 @@ func createTestBaseReporter(t *testing.T, cfg *Config) *baseReporter {
 		version:             cfg.Version,
 		pdata:               pdataInstance,
 		traceEvents:         xsync.NewRWMutex(make(samples.TraceEventsTree)),
-		registeredTypes:     xsync.NewRWMutex(make(map[libpf.Origin]samples.ProfileTypeMetadata)),
 		collectionStartTime: time.Now(),
 	}
 }
@@ -86,6 +85,15 @@ func TestBaseReporterGenerate(t *testing.T) {
 		}(),
 	}
 
+	samplingProfileType := unique.Make(samples.ProfileTypeMetadata{
+		PeriodType: "cpu", PeriodUnit: "nanoseconds",
+		SampleType: "samples", SampleUnit: "count",
+	})
+
+	offCPUProfileType := unique.Make(samples.ProfileTypeMetadata{
+		SampleType: "off_cpu", SampleUnit: "nanoseconds", ReportValues: true,
+	})
+
 	now := time.Now()
 	meta1 := &samples.TraceEventMeta{
 		Timestamp:      libpf.UnixTime64(now.UnixNano()),
@@ -97,7 +105,7 @@ func TestBaseReporterGenerate(t *testing.T) {
 		PID:            1000,
 		TID:            1001,
 		CPU:            0,
-		Origin:         support.TraceOriginSampling,
+		ProfileType:    samplingProfileType,
 	}
 
 	meta2 := &samples.TraceEventMeta{
@@ -110,28 +118,11 @@ func TestBaseReporterGenerate(t *testing.T) {
 		PID:            2000,
 		TID:            2001,
 		CPU:            1,
-		Origin:         support.TraceOriginOffCPU,
 		Value:          5000000, // 5ms
+		ProfileType:    offCPUProfileType,
 	}
 
-	// Register profile types before reporting as the reporter must know which
-	// origins to accept and how to export them.
-	err := reporter.RegisterProfileType(support.TraceOriginSampling, samples.ProfileTypeMetadata{
-		Period:     int64(time.Second) / int64(reporter.cfg.SamplesPerSecond),
-		PeriodType: "cpu",
-		PeriodUnit: "nanoseconds",
-		SampleType: "samples",
-		SampleUnit: "count",
-	})
-	require.NoError(t, err)
-	err = reporter.RegisterProfileType(support.TraceOriginOffCPU, samples.ProfileTypeMetadata{
-		SampleType:   "off_cpu",
-		SampleUnit:   "nanoseconds",
-		ReportValues: true,
-	})
-	require.NoError(t, err)
-
-	err = reporter.ReportTraceEvent(trace1, meta1)
+	err := reporter.ReportTraceEvent(trace1, meta1)
 	require.NoError(t, err)
 
 	err = reporter.ReportTraceEvent(trace2, meta2)

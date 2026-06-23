@@ -11,9 +11,11 @@ import (
 	"hash/fnv"
 	"slices"
 	"time"
+	"unique"
 
 	lru "github.com/elastic/go-freelru"
 	"go.opentelemetry.io/ebpf-profiler/internal/log"
+	"go.opentelemetry.io/ebpf-profiler/support"
 
 	"go.opentelemetry.io/ebpf-profiler/host"
 	"go.opentelemetry.io/ebpf-profiler/interpreter"
@@ -57,6 +59,19 @@ var (
 	errSymbolizationNotSupported = errors.New("symbolization not supported")
 	// errPIDGone indicates that a process is no longer managed by the process manager.
 	errPIDGone = errors.New("interpreter process gone")
+)
+
+var (
+	samplingProfileType = unique.Make(samples.ProfileTypeMetadata{
+		PeriodType: "cpu", PeriodUnit: "nanoseconds",
+		SampleType: "samples", SampleUnit: "count",
+	})
+	offCPUProfileType = unique.Make(samples.ProfileTypeMetadata{
+		SampleType: "off_cpu", SampleUnit: "nanoseconds", ReportValues: true,
+	})
+	probeProfileType = unique.Make(samples.ProfileTypeMetadata{
+		SampleType: "events", SampleUnit: "count",
+	})
 )
 
 // New creates a new ProcessManager which is responsible for keeping track of loading
@@ -330,11 +345,20 @@ func (pm *ProcessManager) HandleTrace(bpfTrace *libpf.EbpfTrace) {
 		ProcessName:    bpfTrace.ProcessName,
 		ExecutablePath: bpfTrace.ExecutablePath,
 		ContainerID:    bpfTrace.ContainerID,
-		Origin:         bpfTrace.Origin,
 		Value:          bpfTrace.Value,
 		EnvVars:        bpfTrace.EnvVars,
 		TraceID:        bpfTrace.APMTraceID,
 		SpanID:         bpfTrace.APMTransactionID,
+	}
+
+	switch bpfTrace.Origin {
+	case support.TraceOriginSampling:
+		meta.ProfileType = samplingProfileType
+	case support.TraceOriginOffCPU:
+		meta.ProfileType = offCPUProfileType
+	case support.TraceOriginProbe:
+		meta.ProfileType = probeProfileType
+	default:
 	}
 
 	pid := bpfTrace.PID

@@ -5,7 +5,6 @@ package pdata // import "go.opentelemetry.io/ebpf-profiler/reporter/internal/pda
 
 import (
 	"path/filepath"
-	"slices"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -29,7 +28,6 @@ const (
 // during which the profiler was actively collecting samples.
 func (p *Pdata) Generate(
 	tree samples.TraceEventsTree,
-	profileTypes map[libpf.Origin]samples.ProfileTypeMetadata,
 	agentName, agentVersion string,
 	collectionStartTime, collectionEndTime time.Time,
 ) (pprofile.Profiles, error) {
@@ -94,25 +92,11 @@ func (p *Pdata) Generate(
 		sp.Scope().SetVersion(agentVersion)
 		sp.SetSchemaUrl(semconv.SchemaURL)
 
-		// Iterate over registered profile types in ascending origin order for
-		// deterministic output.
-		sortedOrigins := make([]libpf.Origin, 0, len(profileTypes))
-		for o := range profileTypes {
-			sortedOrigins = append(sortedOrigins, o)
-		}
-		slices.Sort(sortedOrigins)
-
-		for _, origin := range sortedOrigins {
-			if len(toEvents.Events[origin]) == 0 {
-				// Do not append empty profiles.
-				continue
-			}
-
-			meta := profileTypes[origin]
+		for meta, events := range toEvents.Events {
 			prof := sp.Profiles().AppendEmpty()
 			if err := p.setProfile(dic, attrMgr,
 				stringSet, funcSet, mappingSet, stackSet, locationSet, linkSet,
-				meta, toEvents.Events[origin], prof,
+				meta.Value(), events, prof,
 				collectionStartTime, collectionEndTime); err != nil {
 				return profiles, err
 			}

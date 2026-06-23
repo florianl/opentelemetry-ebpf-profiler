@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unique"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,8 +96,11 @@ func TestCollectorReporterShutdown(t *testing.T) {
 
 	traceEventsPtr := r.traceEvents.WLock()
 	tree := (*traceEventsPtr)
-	tree[samples.ResourceKey{PID: 1}] = samples.ResourceToProfiles{Events: map[libpf.Origin]samples.SampleToEvents{
-		support.TraceOriginProbe: {
+	tree[samples.ResourceKey{PID: 1}] = samples.ResourceToProfiles{Events: map[unique.Handle[samples.ProfileTypeMetadata]]samples.SampleToEvents{
+		unique.Make(samples.ProfileTypeMetadata{
+			PeriodType: "cpu", PeriodUnit: "nanoseconds",
+			SampleType: "samples", SampleUnit: "count",
+		}): {
 			{}: {
 				Frames: func() libpf.Frames {
 					frames := make(libpf.Frames, 0, 1)
