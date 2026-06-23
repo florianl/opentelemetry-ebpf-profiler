@@ -4,6 +4,8 @@
 package samples // import "go.opentelemetry.io/ebpf-profiler/reporter/samples"
 
 import (
+	"unique"
+
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 )
 
@@ -42,11 +44,12 @@ type TraceEventMeta struct {
 	APMServiceName string
 	Timestamp      libpf.UnixTime64
 	CPU            uint32
-	Origin         libpf.Origin
 	Value          int64
 	PID, TID       libpf.PID
 	SpanID         libpf.APMSpanID
 	TraceID        libpf.APMTraceID
+
+	ProfileType unique.Handle[ProfileTypeMetadata]
 }
 
 // TraceEvents holds known information about a trace.
@@ -69,7 +72,7 @@ type ResourceToProfiles struct {
 	EnvVars map[libpf.String]libpf.String
 
 	// Events holds the actual profiling information.
-	Events map[libpf.Origin]SampleToEvents
+	Events map[unique.Handle[ProfileTypeMetadata]]SampleToEvents
 }
 
 // SampleToEvents maps a unique trace hash with its meta data to

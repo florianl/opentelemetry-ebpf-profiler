@@ -11,6 +11,7 @@ import (
 	"hash/fnv"
 	"slices"
 	"time"
+	"unique"
 
 	lru "github.com/elastic/go-freelru"
 	"go.opentelemetry.io/ebpf-profiler/internal/log"
@@ -21,6 +22,7 @@ import (
 	"go.opentelemetry.io/ebpf-profiler/interpreter/dotnet"
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/libpf/pfunsafe"
+	"go.opentelemetry.io/ebpf-profiler/libpf/xsync"
 	"go.opentelemetry.io/ebpf-profiler/lpm"
 	"go.opentelemetry.io/ebpf-profiler/metrics"
 	"go.opentelemetry.io/ebpf-profiler/nativeunwind"
@@ -64,7 +66,7 @@ var (
 func New(ctx context.Context, includeTracers types.IncludedTracers, monitorInterval time.Duration,
 	executableUnloadDelay time.Duration, ebpf pmebpf.EbpfHandler, traceReporter reporter.TraceReporter,
 	exeReporter reporter.ExecutableReporter, sdp nativeunwind.StackDeltaProvider,
-	filterErrorFrames bool, includeEnvVars libpf.Set[string]) (*ProcessManager, error) {
+	filterErrorFrames bool, includeEnvVars libpf.Set[string], profileTypeRegistar *xsync.RWMutex[map[libpf.Origin]unique.Handle[samples.ProfileTypeMetadata]]) (*ProcessManager, error) {
 	if exeReporter == nil {
 		exeReporter = executableReporterStub{}
 	}
@@ -117,6 +119,7 @@ func New(ctx context.Context, includeTracers types.IncludedTracers, monitorInter
 		includeEnvVars:           includeEnvVars,
 		selfCgroupIno:            selfCgroupIno,
 		selfContainerID:          selfContainerID,
+		profileTypeRegistar:      profileTypeRegistar,
 	}
 
 	collectInterpreterMetrics(ctx, pm, monitorInterval)
@@ -330,12 +333,21 @@ func (pm *ProcessManager) HandleTrace(bpfTrace *libpf.EbpfTrace) {
 		ProcessName:    bpfTrace.ProcessName,
 		ExecutablePath: bpfTrace.ExecutablePath,
 		ContainerID:    bpfTrace.ContainerID,
-		Origin:         bpfTrace.Origin,
 		Value:          bpfTrace.Value,
 		EnvVars:        bpfTrace.EnvVars,
 		TraceID:        bpfTrace.APMTraceID,
 		SpanID:         bpfTrace.APMTransactionID,
 	}
+
+	profileTypesPtr := pm.profileTypeRegistar.RLock()
+	if profileType, ok := (*profileTypesPtr)[bpfTrace.Origin]; ok {
+		meta.ProfileType = profileType
+	} else {
+		// TODO: Handle unknwon Origin
+		pm.profileTypeRegistar.RUnlock(&profileTypesPtr)
+		return
+	}
+	pm.profileTypeRegistar.RUnlock(&profileTypesPtr)
 
 	pid := bpfTrace.PID
 	kernelFramesLen := len(bpfTrace.KernelFrames)

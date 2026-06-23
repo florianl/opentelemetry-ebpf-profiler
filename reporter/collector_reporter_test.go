@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unique"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,6 @@ import (
 
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/reporter/samples"
-	"go.opentelemetry.io/ebpf-profiler/support"
 )
 
 func TestCollectorReporterReportTraceEvent(t *testing.T) {
@@ -60,8 +60,7 @@ func TestCollectorReporterReportTraceEvent(t *testing.T) {
 
 			r, err := NewCollector(&Config{}, next)
 			require.NoError(t, err)
-			if err := r.ReportTraceEvent(tt.trace, tt.meta); err != nil &&
-				!errors.Is(err, ErrUnknownOrigin) {
+			if err := r.ReportTraceEvent(tt.trace, tt.meta); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -86,17 +85,13 @@ func TestCollectorReporterShutdown(t *testing.T) {
 	}, next)
 	require.NoError(t, err)
 
-	// Register the probe profile type so the reporter knows to export
-	// TraceOriginProbe samples.
-	require.NoError(t, r.RegisterProfileType(support.TraceOriginProbe, samples.ProfileTypeMetadata{
-		SampleType: "events",
-		SampleUnit: "count",
-	}))
-
 	traceEventsPtr := r.traceEvents.WLock()
 	tree := (*traceEventsPtr)
-	tree[samples.ResourceKey{PID: 1}] = samples.ResourceToProfiles{Events: map[libpf.Origin]samples.SampleToEvents{
-		support.TraceOriginProbe: {
+	tree[samples.ResourceKey{PID: 1}] = samples.ResourceToProfiles{Events: map[unique.Handle[samples.ProfileTypeMetadata]]samples.SampleToEvents{
+		unique.Make(samples.ProfileTypeMetadata{
+			PeriodType: "cpu", PeriodUnit: "nanoseconds",
+			SampleType: "samples", SampleUnit: "count",
+		}): {
 			{}: {
 				Frames: func() libpf.Frames {
 					frames := make(libpf.Frames, 0, 1)
