@@ -4,6 +4,7 @@
 package arm
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -211,4 +212,57 @@ func TestExtractTLSOffsetPostIndexLDR(t *testing.T) {
 	offset, err := ExtractTLSOffset(code, 0x1000, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(8), offset)
+}
+
+func TestExtractTLSDESCOffset(t *testing.T) {
+	// Bytes for ADRP+ADD+BLR. baseAddr=0x1000, ADRP at offset 4 (instrAddr=0x1004).
+	//   page(0x1004) = 0x1000, PCRel = 0x2000 -> pageAddr = 0x3000
+	//   ADD imm = 0x20 -> tlsdescAddr = 0x3020
+	//
+	// ADRP X0, +0x2000 pages (PCRel=0x2000 -> 0xD0000000 LE)
+	// ADD  X0, X0, #0x20            (0x91008000 LE)
+	// BLR  X2                       (0xD63F0040 LE)
+	code := []byte{
+		0x41, 0xd0, 0x3b, 0xd5, // MRS X1, TPIDR_EL0
+		0x00, 0x00, 0x00, 0xd0, // ADRP X0, #0x2000-pages (result=0x3000 at instrAddr=0x1004)
+		0x00, 0x80, 0x00, 0x91, // ADD X0, X0, #0x20
+		0x40, 0x00, 0x3f, 0xd6, // BLR X2
+	}
+
+	const wantTLSDESCAddr = uint64(0x3020)
+	const wantOffset = int32(0x18)
+
+	// Verify that extractTLSDESCOffset finds the right GOT entry address and calls lookupFn.
+	gotAddr := uint64(0)
+	lookup := func(addr uint64) (int64, error) {
+		gotAddr = addr
+		return int64(wantOffset), nil
+	}
+	offset, err := extractTLSDESCOffset(code, 0x1000, lookup)
+	require.NoError(t, err)
+	assert.Equal(t, wantOffset, offset)
+	assert.Equal(t, wantTLSDESCAddr, gotAddr)
+
+	// Verify that a failing lookup falls through gracefully.
+	_, err = extractTLSDESCOffset(code, 0x1000, func(uint64) (int64, error) {
+		return 0, fmt.Errorf("no reloc")
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "TLSDESC pattern")
+}
+
+func TestExtractTLSOffsetTLSDESCFallback(t *testing.T) {
+	// Full ExtractTLSOffset integration: MRS with no direct ADD/LDR should fall
+	// back to the TLSDESC scan when ef is non-nil (stubbed via the lookupFn path).
+	code := []byte{
+		0x41, 0xd0, 0x3b, 0xd5, // MRS X1, TPIDR_EL0
+		0x00, 0x00, 0x00, 0xd0, // ADRP X0, (result=0x3000 at instrAddr=0x1004)
+		0x00, 0x80, 0x00, 0x91, // ADD X0, X0, #0x20 → tlsdescAddr = 0x3020
+		0x40, 0x00, 0x3f, 0xd6, // BLR X2
+	}
+
+	// With ef=nil, the TLSDESC fallback is skipped, so we expect error about missing ADD/LDR.
+	_, err := ExtractTLSOffset(code, 0x1000, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "found MRS TPIDR_EL0 but no matching ADD/LDR")
 }

@@ -66,6 +66,21 @@ func ExtractTLSOffset(code []byte, codeAddress uint64, file *pfelf.File) (int32,
 				value := int64(npsr.Uint64(valueBytes, 0))
 				return validateTLSOffset(int32(value))
 			}
+
+			// Pattern 4: TLSDESC, the register holds the result of:
+			//
+			//   LEA rax, [rip+TLSDESC_GOT]
+			//   CALL [rax]
+			//   MOV rax, FS:[rax]
+			//
+			// The TLS offset is stored as the addend in the R_X86_64_TLSDESC relocation.
+			capturedGOTAddr := e.NewImmediateCapture("tlsdesc_addr")
+			if actual.Match(e.MemWithSegment(x86asm.FS, capturedGOTAddr, 8)) {
+				addend, err := file.GetTLSDESCOffset(capturedGOTAddr.CapturedValue())
+				if err == nil {
+					return validateTLSOffset(int32(addend))
+				}
+			}
 		}
 	}
 	return 0, fmt.Errorf("could not find FS-relative MOV instruction with valid TLS offset")

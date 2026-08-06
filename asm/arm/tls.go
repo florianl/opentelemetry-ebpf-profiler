@@ -141,7 +141,71 @@ func ExtractTLSOffset(code []byte, baseAddr uint64, ef *pfelf.File) (int32, erro
 	if !foundMRS {
 		return 0, fmt.Errorf("could not find MRS TPIDR_EL0 instruction")
 	}
+
+	// MRS found but no direct ADD/LDR offset. Fall back to the TLSDESC pattern used
+	// by shared libraries.
+	// The TLS offset is stored as the addend in the R_AARCH64_TLSDESC relocation.
+	if ef != nil {
+		if offset, err := extractTLSDESCOffset(code, baseAddr, ef.GetTLSDESCOffset); err == nil {
+			return offset, nil
+		}
+	}
+
 	return 0, fmt.Errorf("found MRS TPIDR_EL0 but no matching ADD/LDR with TLS offset")
+}
+
+// extractTLSDESCOffset scans the code for the TLSDESC calling sequence used in
+// shared libraries:
+//
+//	ADRP Rpage, label
+//	ADD  Rdesc, Rpage, #imm
+//	BLR  Rresolver
+//
+// and resolves the TLS offset via lookupFn. Only the ADRP+ADD pair is needed:
+// it uniquely identifies the TLSDESC GOT entry whose R_AARCH64_TLSDESC relocation
+// addend is the TLS offset the resolver would return at runtime.
+func extractTLSDESCOffset(code []byte, baseAddr uint64,
+	lookupFn func(uint64) (int64, error)) (int32, error) {
+	for offs := 0; offs < len(code)-4; offs += 4 {
+		inst, err := aa.Decode(code[offs:])
+		if err != nil || inst.Op != aa.ADRP {
+			continue
+		}
+		pageReg, pageOk := Xreg2num(inst.Args[0])
+		if !pageOk {
+			continue
+		}
+		pcrel, pcOk := inst.Args[1].(aa.PCRel)
+		if !pcOk {
+			continue
+		}
+		instrAddr := baseAddr + uint64(offs)
+		// ADRP result: page-align the instruction address and add the page-relative offset.
+		pageAddr := (instrAddr &^ uint64(0xFFF)) + uint64(int64(pcrel))
+
+		// Scan ahead for ADD Rdesc, Rpage, #imm to compute the TLSDESC GOT entry address.
+		for j := offs + 4; j < len(code)-4 && j < offs+32; j += 4 {
+			nextInst, err := aa.Decode(code[j:])
+			if err != nil {
+				continue
+			}
+			if nextInst.Op != aa.ADD {
+				continue
+			}
+			srcReg, srcOk := Xreg2num(nextInst.Args[1])
+			imm, immOk := DecodeImmediate(nextInst.Args[2])
+			if !srcOk || !immOk || srcReg != pageReg || imm <= 0 {
+				continue
+			}
+			tlsdescAddr := pageAddr + uint64(imm)
+			addend, err := lookupFn(tlsdescAddr)
+			if err != nil {
+				continue
+			}
+			return validateTLSOffset(int32(addend))
+		}
+	}
+	return 0, fmt.Errorf("TLSDESC pattern (ADRP+ADD) not found")
 }
 
 // validateTLSOffset ensures that the extracted offset is within some boundaries.

@@ -780,6 +780,29 @@ func (f *File) VisitTLSRelocations(visitor func(ElfReloc, string) bool) error {
 	return f.VisitRelocations(visitor, RelTLSDESC)
 }
 
+// GetTLSDESCOffset returns the TLS offset for a TLSDESC relocation at the given
+// virtual address. For R_AARCH64_TLSDESC and R_X86_64_TLSDESC relocations, the
+// addend field holds the TLS offset the resolver returns at runtime.
+func (f *File) GetTLSDESCOffset(addr uint64) (int64, error) {
+	var addend int64
+	found := false
+	err := f.VisitTLSRelocations(func(reloc ElfReloc, _ string) bool {
+		if uint64(reloc.Off) == addr {
+			addend = reloc.Addend
+			found = true
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		return 0, fmt.Errorf("no TLSDESC relocation at address 0x%x", addr)
+	}
+	return addend, nil
+}
+
 // VisitRelocations visits all relocations whose type matches the relTypes
 // bitmask and provides the relocation and symbol name to the visitor. The
 // visitor can return false to stop iteration.
