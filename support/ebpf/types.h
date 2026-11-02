@@ -400,6 +400,10 @@ typedef enum TracePrograms {
 // Can be increased up to 2^15, see also STACK_DELTA_COMMAND_FLAG.
 #define UNWIND_INFO_MAX_ENTRIES 16384
 
+// Default number of entries of stack_delta_page_to_info. loadAllMaps() resizes the map at
+// load time, so this is not the capacity the agent runs with.
+#define STACK_DELTA_PAGE_TO_INFO_MAX_ENTRIES 40000
+
 // TSDInfo contains data needed to extract Thread Specific Data (TSD) values
 typedef struct TSDInfo {
   // Offset is the pointer difference from "tpbase" pointer to the C-library
@@ -1068,6 +1072,33 @@ typedef struct StackDeltaPageInfo {
 // The binary mask for STACK_DELTA_PAGE_BITS, which can be used to and/nand an address
 // for its page number and offset within that page.
 #define STACK_DELTA_PAGE_MASK ((1UL << STACK_DELTA_PAGE_BITS) - 1)
+
+// StackDeltaFPRange is the look up key for the stack_delta_fp_ranges LPM trie. One entry
+// covers a run of stack delta pages with constant unwind info.
+typedef struct StackDeltaFPRange {
+  u32 prefixLen; // Number of key data bits that define the longest prefix, pad included.
+
+  // The kernel matches everything after prefixLen as one big endian bit string. The
+  // alignment of fileID would leave an implicit hole here, which would become the most
+  // significant bits of that string, so the hole is explicit, zero, and in prefixLen.
+  u32 pad;
+
+  __be64 fileID; // Unique ID of the executable's text section.
+  __be64 page;   // Stack delta page number, that is offset >> STACK_DELTA_PAGE_BITS.
+} StackDeltaFPRange;
+
+// BIT_WIDTH_FP_RANGE_PAD defines the number of bits used by the pad of StackDeltaFPRange.
+#define BIT_WIDTH_FP_RANGE_PAD     32
+// BIT_WIDTH_FILE_ID defines the number of bits used in the fileID of StackDeltaFPRange.
+#define BIT_WIDTH_FILE_ID          64
+// BIT_WIDTH_STACK_DELTA_PAGE defines the number of bits used in the page of StackDeltaFPRange.
+#define BIT_WIDTH_STACK_DELTA_PAGE 64
+
+// StackDeltaFPInfo is the value of the stack_delta_fp_ranges LPM trie. Only unwind infos with
+// STACK_DELTA_COMMAND_FLAG are stored, so get_stack_delta() reports no address difference.
+typedef struct StackDeltaFPInfo {
+  u16 unwindInfo;
+} StackDeltaFPInfo;
 
 // In order to determine whether a given PC falls into the main interpreter loop
 // of an interpreter, we need to store some data: The lower boundary of the loop,

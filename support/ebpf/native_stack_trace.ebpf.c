@@ -136,8 +136,18 @@ struct stack_delta_page_to_info_t {
   __uint(type, BPF_MAP_TYPE_HASH);
   __type(key, StackDeltaPageKey);
   __type(value, StackDeltaPageInfo);
-  __uint(max_entries, 40000);
+  __uint(max_entries, STACK_DELTA_PAGE_TO_INFO_MAX_ENTRIES);
 } stack_delta_page_to_info SEC(".maps");
+
+// Maps ranges of fileID and page to a single unwind command covering the whole range. Only
+// consulted when stack_delta_page_to_info has no entry for the page.
+struct stack_delta_fp_ranges_t {
+  __uint(type, BPF_MAP_TYPE_LPM_TRIE);
+  __type(key, StackDeltaFPRange);
+  __type(value, StackDeltaFPInfo);
+  __uint(max_entries, 65536);
+  __uint(map_flags, BPF_F_NO_PREALLOC);
+} stack_delta_fp_ranges SEC(".maps");
 
 #include "native_stack_trace.h"
 
